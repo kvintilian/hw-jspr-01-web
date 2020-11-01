@@ -12,12 +12,14 @@ public class Request {
     private final String path;
     private final Map<String, String> headers;
     //    private final Map<String, String> queryParams;
+    private final String body;
     private final InputStream in;
 
-    private Request(String method, String path, Map<String, String> headers, InputStream in) {
+    private Request(String method, String path, Map<String, String> headers, String body, InputStream in) {
         this.method = method;
         this.path = path;
         this.headers = headers;
+        this.body = body;
         this.in = in;
     }
 
@@ -33,8 +35,8 @@ public class Request {
         return headers;
     }
 
-    public InputStream getIn() {
-        return in;
+    public Optional<String> getBody() {
+        return Optional.ofNullable(body);
     }
 
     public static Request fromInputStream(InputStream in) throws IOException {
@@ -95,6 +97,7 @@ public class Request {
         }
 
         // для GET тела нет
+        String body = null;
         if (!method.equals(GET)) {
             stream.skip(headersDelimiter.length);
             // вычитываем Content-Length, чтобы прочитать body
@@ -102,12 +105,12 @@ public class Request {
             if (contentLength.isPresent()) {
                 final var length = Integer.parseInt(contentLength.get());
                 final var bodyBytes = in.readNBytes(length);
-                final var body = new String(bodyBytes);
+                body = new String(bodyBytes);
                 System.out.println(body);
             }
         }
 
-        return new Request(method, path, headers, in);
+        return new Request(method, path, headers, body, in);
     }
 
     // from google guava with modifications
