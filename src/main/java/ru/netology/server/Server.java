@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -20,11 +21,10 @@ public class Server {
     }
 
     public void addHandler(String method, String path, Handler handler) {
-        if (handlers.get(method) == null) {
-            handlers.put(method, new ConcurrentHashMap<>());
-        }
-
-        handlers.get(method).put(path, handler);
+        Optional.ofNullable(handlers.get(method))
+                .ifPresentOrElse(
+                        pathHandlerMap -> pathHandlerMap.put(path, handler),
+                        () -> handlers.put(method, new ConcurrentHashMap<>(Map.of(path, handler))));
     }
 
     public void listen(int port) {
@@ -45,19 +45,10 @@ public class Server {
 
             var request = Request.fromInputStream(in);
 
-            var pathHandlerMap = handlers.get(request.getMethod());
-            if (pathHandlerMap == null) {
-                notFoundHandler.handle(request, out);
-                return;
-            }
-
-            var handler = pathHandlerMap.get(request.getPath());
-            if (handler == null) {
-                notFoundHandler.handle(request, out);
-                return;
-            }
-
-            handler.handle(request, out);
+            Optional.ofNullable(handlers.get(request.getMethod()))
+                    .map(pathHandlerMap -> pathHandlerMap.get(request.getPath()))
+                    .ifPresentOrElse(handler -> handler.handle(request, out),
+                            () -> notFoundHandler.handle(request, out));
         } catch (IOException e) {
             e.printStackTrace();
         }
