@@ -2,6 +2,8 @@ package ru.netology.server;
 
 import java.io.*;
 import java.net.URI;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 import org.apache.http.client.utils.URLEncodedUtils;
@@ -21,7 +23,7 @@ public class Request {
     private Request(String method, String path, Map<String, String> headers, String body, InputStream in) {
         this.method = method;
         this.path = path.contains("?") ? path.split("\\?")[0] : path;
-        var pairs = URLEncodedUtils.parse(URI.create(path), "UTF-8");
+        var pairs = URLEncodedUtils.parse(URI.create(path), StandardCharsets.UTF_8);
         for (var pair : pairs) {
             queryParams.put(pair.getName(), pair.getValue());
         }
