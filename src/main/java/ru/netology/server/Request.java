@@ -1,7 +1,10 @@
 package ru.netology.server;
 
 import java.io.*;
+import java.net.URI;
 import java.util.*;
+
+import org.apache.http.client.utils.URLEncodedUtils;
 
 public class Request {
     public static final String GET = "GET";
@@ -11,14 +14,19 @@ public class Request {
     private final String method;
     private final String path;
     private final Map<String, String> headers;
-    //    private final Map<String, String> queryParams;
+    private final Map<String, String> queryParams = new HashMap<>();
     private final String body;
     private final InputStream in;
 
     private Request(String method, String path, Map<String, String> headers, String body, InputStream in) {
         this.method = method;
-        this.path = path;
+        this.path = path.contains("?") ? path.split("\\?")[0] : path;
+        var pairs = URLEncodedUtils.parse(URI.create(path), "UTF-8");
+        for (var pair : pairs) {
+            queryParams.put(pair.getName(), pair.getValue());
+        }
         this.headers = headers;
+
         this.body = body;
         this.in = in;
     }
@@ -33,6 +41,14 @@ public class Request {
 
     public Map<String, String> getHeaders() {
         return headers;
+    }
+
+    public Map<String, String> getQueryParams() {
+        return queryParams;
+    }
+
+    public String getQueryParam(String name) {
+        return queryParams.getOrDefault(name, null);
     }
 
     public Optional<String> getBody() {
@@ -104,7 +120,7 @@ public class Request {
             final var contentLength = Optional.ofNullable(headers.get("Content-Length"));
             if (contentLength.isPresent()) {
                 final var length = Integer.parseInt(contentLength.get());
-                final var bodyBytes = in.readNBytes(length);
+                final var bodyBytes = stream.readNBytes(length);
                 body = new String(bodyBytes);
                 System.out.println(body);
             }
@@ -132,7 +148,8 @@ public class Request {
         return "Request{" +
                 "method='" + method + '\'' +
                 ", path='" + path + '\'' +
-                ", headers=" + headers +
+                ", headers=" + headers + '\'' +
+                ", queryParams=" + queryParams +
                 '}';
     }
 }
