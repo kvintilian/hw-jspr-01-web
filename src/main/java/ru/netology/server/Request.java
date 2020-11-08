@@ -8,6 +8,8 @@ import java.util.*;
 
 import org.apache.http.client.utils.URLEncodedUtils;
 
+import javax.swing.text.html.Option;
+
 public class Request {
     public static final String GET = "GET";
     public static final String POST = "POST";
@@ -134,7 +136,6 @@ public class Request {
                 final var length = Integer.parseInt(contentLength.get());
                 final var bodyBytes = stream.readNBytes(length);
                 body = new String(bodyBytes);
-                postParams = fromBody(body);
             }
             // вычитываем Content-Type
             final var contentType = Optional.ofNullable(headers.get("Content-Type"));
@@ -153,10 +154,14 @@ public class Request {
         var result = new HashMap<String, List<String>>();
         var pairs = URLEncodedUtils.parse(body, StandardCharsets.UTF_8);
         for (var pair : pairs) {
-            if (result.containsKey(pair.getName()))
-                result.get(pair.getName()).add(pair.getValue());
-            else
-                result.put(pair.getName(), Arrays.asList(pair.getValue()));
+            var list = result.get(pair.getName());
+            if (Optional.ofNullable(list).isPresent())
+                list.add(pair.getValue());
+            else {
+                list = new ArrayList<>();
+                list.add(pair.getValue());
+                result.put(pair.getName(), list);
+            }
         }
         return result;
     }
