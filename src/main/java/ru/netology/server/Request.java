@@ -1,23 +1,35 @@
 package ru.netology.server;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.util.HashMap;
-import java.util.Map;
+import java.io.*;
+import java.net.URI;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+
+import org.apache.http.client.utils.URLEncodedUtils;
 
 public class Request {
+    public static final String GET = "GET";
+    public static final String POST = "POST";
+    private static final List<String> allowedMethods = List.of(GET, POST);
 
     private final String method;
     private final String path;
     private final Map<String, String> headers;
+    private final Map<String, String> queryParams = new HashMap<>();
+    private final String body;
     private final InputStream in;
 
-    private Request(String method, String path, Map<String, String> headers, InputStream in) {
+    private Request(String method, String path, Map<String, String> headers, String body, InputStream in) {
         this.method = method;
-        this.path = path;
+        this.path = path.contains("?") ? path.split("\\?")[0] : path;
+        var pairs = URLEncodedUtils.parse(URI.create(path), StandardCharsets.UTF_8);
+        for (var pair : pairs) {
+            queryParams.put(pair.getName(), pair.getValue());
+        }
         this.headers = headers;
+
+        this.body = body;
         this.in = in;
     }
 
@@ -33,32 +45,104 @@ public class Request {
         return headers;
     }
 
-    public InputStream getIn() {
-        return in;
+    public Map<String, String> getQueryParams() {
+        return queryParams;
+    }
+
+    public String getQueryParam(String name) {
+        return queryParams.getOrDefault(name, null);
+    }
+
+    public Optional<String> getBody() {
+        return Optional.ofNullable(body);
     }
 
     public static Request fromInputStream(InputStream in) throws IOException {
-        var reader = new BufferedReader(new InputStreamReader(in));
-        final var requestLine = reader.readLine();
-        final var parts = requestLine.split(" ");
+        var stream = new BufferedInputStream(in);
 
-        if (parts.length != 3) {
+        // лимит на request line + заголовки
+        final var limit = 4096;
+
+        stream.mark(limit);
+        final var buffer = new byte[limit];
+        final var read = stream.read(buffer);
+
+        // ищем request line
+        final var requestLineDelimiter = new byte[]{'\r', '\n'};
+        final var requestLineEnd = indexOf(buffer, requestLineDelimiter, 0, read);
+        if (requestLineEnd == -1) {
             throw new IOException("Invalid request");
         }
 
-        var method = parts[0];
-        var path = parts[1];
+        // читаем request line
+        final var requestLine = new String(Arrays.copyOf(buffer, requestLineEnd)).split(" ");
+        if (requestLine.length != 3) {
+            throw new IOException("Invalid request");
+        }
+
+        final var method = requestLine[0];
+        if (!allowedMethods.contains(method)) {
+            throw new IOException(String.format("Unsupported method in request (%s)", method));
+        }
+
+        final var path = requestLine[1];
+        if (!path.startsWith("/")) {
+            throw new IOException(String.format("Invalid path in request (%s)", path));
+        }
+
+        // ищем заголовки
+        final var headersDelimiter = new byte[]{'\r', '\n', '\r', '\n'};
+        final var headersStart = requestLineEnd + requestLineDelimiter.length;
+        final var headersEnd = indexOf(buffer, headersDelimiter, headersStart, read);
+        if (headersEnd == -1) {
+            throw new IOException("Headers not found in request");
+        }
+
+        // отматываем на начало буфера
+        stream.reset();
+        // пропускаем requestLine
+        stream.skip(headersStart);
+
+        final var headersBytes = stream.readNBytes(headersEnd - headersStart);
+        final var headerList = Arrays.asList(new String(headersBytes).split("\r\n"));
 
         Map<String, String> headers = new HashMap<>();
-        String headerLine;
-        while (!(headerLine = reader.readLine()).equals("")) {
+        for (String headerLine : headerList) {
             var i = headerLine.indexOf(":");
             var headerName = headerLine.substring(0, i);
             var headerValue = headerLine.substring(i + 2);
             headers.put(headerName, headerValue);
         }
 
-        return new Request(method, path, headers, in);
+        // для GET тела нет
+        String body = null;
+        if (!method.equals(GET)) {
+            stream.skip(headersDelimiter.length);
+            // вычитываем Content-Length, чтобы прочитать body
+            final var contentLength = Optional.ofNullable(headers.get("Content-Length"));
+            if (contentLength.isPresent()) {
+                final var length = Integer.parseInt(contentLength.get());
+                final var bodyBytes = stream.readNBytes(length);
+                body = new String(bodyBytes);
+                System.out.println(body);
+            }
+        }
+
+        return new Request(method, path, headers, body, in);
+    }
+
+    // from google guava with modifications
+    private static int indexOf(byte[] array, byte[] target, int start, int max) {
+        outer:
+        for (int i = start; i < max - target.length + 1; i++) {
+            for (int j = 0; j < target.length; j++) {
+                if (array[i + j] != target[j]) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
     }
 
     @Override
@@ -66,7 +150,8 @@ public class Request {
         return "Request{" +
                 "method='" + method + '\'' +
                 ", path='" + path + '\'' +
-                ", headers=" + headers +
+                ", headers=" + headers + '\'' +
+                ", queryParams=" + queryParams +
                 '}';
     }
 }

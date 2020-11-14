@@ -17,6 +17,7 @@ public class Main {
 
         for (String path : validPaths) {
             server.addHandler("GET", path, Handler::defaultHandler);
+            server.addHandler("POST", path, Handler::defaultHandler);
         }
 
         server.addHandler("GET", "/classic.html", (request, out) -> {
