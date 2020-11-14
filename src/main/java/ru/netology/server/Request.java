@@ -8,6 +8,8 @@ import java.util.*;
 
 import org.apache.http.client.utils.URLEncodedUtils;
 
+import javax.swing.text.html.Option;
+
 public class Request {
     public static final String GET = "GET";
     public static final String POST = "POST";
@@ -17,10 +19,11 @@ public class Request {
     private final String path;
     private final Map<String, String> headers;
     private final Map<String, String> queryParams = new HashMap<>();
+    private final Map<String, List<String>> postParams;
     private final String body;
     private final InputStream in;
 
-    private Request(String method, String path, Map<String, String> headers, String body, InputStream in) {
+    private Request(String method, String path, Map<String, String> headers, String body, Map<String, List<String>> postParams, InputStream in) {
         this.method = method;
         this.path = path.contains("?") ? path.split("\\?")[0] : path;
         var pairs = URLEncodedUtils.parse(URI.create(path), StandardCharsets.UTF_8);
@@ -28,7 +31,7 @@ public class Request {
             queryParams.put(pair.getName(), pair.getValue());
         }
         this.headers = headers;
-
+        this.postParams = postParams;
         this.body = body;
         this.in = in;
     }
@@ -51,6 +54,14 @@ public class Request {
 
     public String getQueryParam(String name) {
         return queryParams.getOrDefault(name, null);
+    }
+
+    public Map<String, List<String>> getPostParams() {
+        return postParams;
+    }
+
+    public List<String> getPostParam(String name) {
+        return postParams.getOrDefault(name, null);
     }
 
     public Optional<String> getBody() {
@@ -116,6 +127,7 @@ public class Request {
 
         // для GET тела нет
         String body = null;
+        Map<String, List<String>> postParams = null;
         if (!method.equals(GET)) {
             stream.skip(headersDelimiter.length);
             // вычитываем Content-Length, чтобы прочитать body
@@ -124,11 +136,34 @@ public class Request {
                 final var length = Integer.parseInt(contentLength.get());
                 final var bodyBytes = stream.readNBytes(length);
                 body = new String(bodyBytes);
-                System.out.println(body);
+            }
+            // вычитываем Content-Type
+            final var contentType = Optional.ofNullable(headers.get("Content-Type"));
+            if (contentType.isPresent()) {
+                final var contentTypeValue = contentType.get();
+                if (contentTypeValue.contains("x-www-form-urlencoded") && Optional.ofNullable(body).isPresent()) {
+                    postParams = fromBody(body);
+                }
             }
         }
 
-        return new Request(method, path, headers, body, in);
+        return new Request(method, path, headers, body, postParams, in);
+    }
+
+    private static Map<String, List<String>> fromBody(String body) {
+        var result = new HashMap<String, List<String>>();
+        var pairs = URLEncodedUtils.parse(body, StandardCharsets.UTF_8);
+        for (var pair : pairs) {
+            var list = result.get(pair.getName());
+            if (Optional.ofNullable(list).isPresent())
+                list.add(pair.getValue());
+            else {
+                list = new ArrayList<>();
+                list.add(pair.getValue());
+                result.put(pair.getName(), list);
+            }
+        }
+        return result;
     }
 
     // from google guava with modifications
@@ -151,7 +186,8 @@ public class Request {
                 "method='" + method + '\'' +
                 ", path='" + path + '\'' +
                 ", headers=" + headers + '\'' +
-                ", queryParams=" + queryParams +
+                ", queryParams=" + queryParams + '\'' +
+                ", postParams=" + postParams +
                 '}';
     }
 }
